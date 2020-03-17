@@ -1,0 +1,25 @@
+version: '3.1'
+
+services:
+
+  db01:
+    build:
+      context: .
+      dockerfile: ./docker/db01/Dockerfile
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: db01
+    ports:
+      - "3306:3306"
+  
+  db02:
+    build:
+      context: .
+      dockerfile: ./docker/db02/Dockerfile
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: db02
+    ports:
+      - "3307:3306"
