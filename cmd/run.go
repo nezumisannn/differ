@@ -18,6 +18,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"encoding/csv"
+	"time"
+	
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/jinzhu/gorm"
@@ -58,7 +61,6 @@ type Svs struct {
 
 var config Config
 var o = &Options{}
-var tabledata = make([][]string, 0)
 
 func NewCmdRun() *cobra.Command {
 
@@ -87,6 +89,13 @@ func Unmarshal(file string) (err error) {
 
 func Run(o *Options) {
 	
+	output := o.output
+
+	if output != "csv" && output != "table" {
+		fmt.Println("Invalid output option. You can specify csv or table.")
+		os.Exit(1)
+	}
+
 	if err := Unmarshal(o.config); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -119,13 +128,14 @@ func Run(o *Options) {
 		defer db.Close()
 	}
 	
-	search(svsdb01,svsdb02)
+	search_result := Search(svsdb01,svsdb02)
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Parameter", "Value(database01)", "Value(database02)", "Status"})
-	table.SetRowLine(true)
-	table.AppendBulk(tabledata)
-	table.Render()
+	switch output {
+		case "csv":
+			WriteCSV(search_result)
+		case "table":
+			WriteTable(search_result)
+	}
 }
 
 func Connect(dbms string, user string, password string, protocol string, dbname string) *gorm.DB {
@@ -139,8 +149,9 @@ func Connect(dbms string, user string, password string, protocol string, dbname 
 	return db
 }
 
-func GetRows(db *gorm.DB) (result [][]string) {
-	slicerows := make([][]string, 0)
+func GetRows(db *gorm.DB) [][]string {
+	
+	result := make([][]string, 0)
 	rows, err := db.Raw("show variables").Rows()
 
     if err != nil {
@@ -163,46 +174,79 @@ func GetRows(db *gorm.DB) (result [][]string) {
 		}
 		
 		row = append(row, svs.Variable_name, svs.Value)
-		slicerows = append(slicerows, row)
+		result = append(result, row)
 	}
-
-	return slicerows
+	return result
 }
 
-func search(slice [][]string, targets [][]string) {
-	for _,  rows := range slice {
-		hit := 0
-		status := "Does not exist."
-		name01 := rows[2]
-		value01 := rows[3]
-		for _, target := range targets {
-			name02 := target[2]
-			value02 := target[3]
+func Search(keywords [][]string, targets [][]string) [][]string {
+	
+	result := make([][]string, 0)
+	exist := 0
+	status := "Does not exist."
 
-			if name01 != name02 {
+	for _,  keyword := range keywords {
+
+		search_diff := make([]string, 0)
+		keyword_name := keyword[2]
+		keyword_value := keyword[3]
+
+		for _, target := range targets {
+
+			target_name := target[2]
+			target_value := target[3]
+
+			if keyword_name != target_name {
 				continue
 			}
-
-			hit = 1
 			
-			if value01 != value02 {
+			exist = 1
+
+			if keyword_value != target_value {
 				status = "Different."
-				diff := make([]string, 0)
-				diff = append(diff, name01)
-				diff = append(diff, value01)
-				diff = append(diff, value02)
-				diff = append(diff, status)
-				tabledata = append(tabledata, diff)
+				search_diff = append(search_diff, keyword_name)
+				search_diff = append(search_diff, keyword_value)
+				search_diff = append(search_diff, target_value)
+				search_diff = append(search_diff, status)
+				result = append(result, search_diff)
 			}
 		}
-		if hit == 0 {
-			message := "NONE"
-			diff := make([]string, 0)
-			diff = append(diff, name01)
-			diff = append(diff, value01)
-			diff = append(diff, message)
-			diff = append(diff, status)
-			tabledata = append(tabledata, diff)
+
+		if exist == 0 {
+			message := ""
+			search_diff = append(search_diff, keyword_name)
+			search_diff = append(search_diff, keyword_value)
+			search_diff = append(search_diff, message)
+			search_diff = append(search_diff, status)
+			result = append(result, search_diff)
 		}
 	}
+	return result
+}
+
+func WriteTable(search_result [][]string) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Parameter", "Value(database01)", "Value(database02)", "Status"})
+	table.SetRowLine(true)
+	table.AppendBulk(search_result)
+	table.Render()
+}
+
+func WriteCSV(search_result [][]string) {
+	layout := "2006-01-02-15-04-05"
+	time := time.Now()
+	path := "differ_" + time.Format(layout) + ".csv"
+
+	file, err := os.Create(path)
+    if err != nil {
+        panic(err.Error())
+    }
+	defer file.Close()
+	
+    writer := csv.NewWriter(file)
+    if err := writer.WriteAll(search_result); err != nil {
+        panic(err.Error())
+	}
+	
+    fmt.Println("CSV File Created.")
 }
