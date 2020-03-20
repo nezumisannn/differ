@@ -17,27 +17,20 @@ $ docker-conpose up -d
 
 ### 設定ファイル(differ.config.yaml)の記述
 以下が記載例です。    
-- dbms: 変更不要
 - user: 接続ユーザー名
 - password: ユーザーパスワード
 - protocol: 接続先とポート番号
-- dbname: 接続するDBスキーマの名前
 
 ```
-database01:
-  -
-    dbms: "mysql"
+differ:
+  database01:
     user: "root"
     password: "db01"
     protocol: "tcp(127.0.0.1:3306)"
-    dbname: "mysql"
-database02:
-  -
-    dbms: "mysql"
+  database02:
     user: "root"
     password: "db02"
     protocol: "tcp(127.0.0.1:3307)"
-    dbname: "mysql"
 ```
 
 ### コマンド実行
