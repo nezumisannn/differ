@@ -35,11 +35,10 @@ func NewCmdRoot() *cobra.Command {
 
 	cobra.OnInitialize(initConfig)
 
- 	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/differ.config.yaml)")
- 	cmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
- 	cmd.AddCommand(NewCmdRun())
- 	return cmd
+	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/differ.config.yaml)")
+	cmd.AddCommand(NewCmdRun())
+	
+	return cmd
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -71,7 +70,8 @@ func initConfig() {
 
 	viper.AutomaticEnv()
 
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Println("Failed", err)
+		os.Exit(1)
 	}
 }

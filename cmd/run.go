@@ -18,49 +18,18 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"encoding/csv"
-	"time"
-	
+		
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/mysql"
-	"github.com/olekukonko/tablewriter"
+	"github.com/nezumisannn/differ/config"
+	"github.com/nezumisannn/differ/connector"
+	"github.com/nezumisannn/differ/writer"
 )
 
-type Options struct {
+type options struct {
 	output string
-	config string
 }
 
-type Config struct {
-	Database01 []Database01 `mapstructure:"database01"`
-	Database02 []Database02 `mapstructure:"database02"`
-}
-
-type Database01 struct {
-	Dbms     string `mapstructure:"dbms"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	Protocol string `mapstructure:"protocol"`
-	Dbname   string `mapstructure:"dbname"`
-}
-
-type Database02 struct {
-	Dbms     string `mapstructure:"dbms"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	Protocol string `mapstructure:"protocol"`
-	Dbname   string `mapstructure:"dbname"`
-}
-
-type Svs struct {
-	Variable_name string
-	Value         string
-}
-
-var config Config
-var o = &Options{}
+var o = &options{}
 
 func NewCmdRun() *cobra.Command {
 
@@ -68,7 +37,8 @@ func NewCmdRun() *cobra.Command {
 		Use:   "run",
 		Short: "A MySQL show variables diff command",
 		Run: func(cmd *cobra.Command, args []string) {
-			Run(o)
+			cfgFile := cfgFile
+			Run(cfgFile)
 		},
 	}
 
@@ -76,107 +46,40 @@ func NewCmdRun() *cobra.Command {
 	return cmd
 }
 
-func Unmarshal(file string) (err error) {
-	viper.SetConfigFile(file)
-	if err := viper.ReadInConfig(); err != nil {
-		return err
-	}
-	if err := viper.Unmarshal(&config); err != nil {
-		return err
-	}
-	return nil
-}
-
-func Run(o *Options) {
+func Run(cfgFile string) {
 	
-	output := o.output
+	Varidete()
 
-	if output != "csv" && output != "table" {
-		fmt.Println("Invalid output option. You can specify csv or table.")
-		os.Exit(1)
-	}
-
-	if err := Unmarshal(o.config); err != nil {
+	if err := config.LoadFile(cfgFile); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
-	}
-	
-	svsdb01 := make([][]string, 0)
-	svsdb02 := make([][]string, 0)
-	
-	for _, database01 := range config.Database01 {
-		dbms := database01.Dbms
-		user := database01.User
-		password := database01.Password
-		protocol := database01.Protocol
-		dbname := database01.Dbname
-
-		db := Connect(dbms,user,password,protocol,dbname)
-		svsdb01 = GetRows(db)
-		defer db.Close()
 	}
 
-	for _, database02 := range config.Database02 {
-		dbms := database02.Dbms
-		user := database02.User
-		password := database02.Password
-		protocol := database02.Protocol
-		dbname := database02.Dbname
+	Db01Dbms := "mysql"
+	Db01User := config.Cfg.Differ.Database01.User
+	Db01Password := config.Cfg.Differ.Database01.Password
+	Db01Protocol := config.Cfg.Differ.Database01.Protocol
+	Db01Dbname := "mysql"
 
-		db := Connect(dbms,user,password,protocol,dbname)
-		svsdb02 = GetRows(db)
-		defer db.Close()
-	}
-	
-	search_result := Search(svsdb01,svsdb02)
+	Db01Connect := connector.Mysql(Db01Dbms,Db01User,Db01Password,Db01Protocol,Db01Dbname)
+	SvsDb01 := connector.ShowVariables(Db01Connect)
 
-	switch output {
+	Db02Dbms := "mysql"
+	Db02User := config.Cfg.Differ.Database02.User
+	Db02Password := config.Cfg.Differ.Database02.Password
+	Db02Protocol := config.Cfg.Differ.Database02.Protocol
+	Db02Dbname := "mysql"
+
+	Db02Connect := connector.Mysql(Db02Dbms,Db02User,Db02Password,Db02Protocol,Db02Dbname)
+	SvsDb02 := connector.ShowVariables(Db02Connect)
+
+	SearchResult := Search(SvsDb01,SvsDb02)
+
+	switch o.output {
 		case "csv":
-			WriteCSV(search_result)
+			writer.CSV(SearchResult)
 		case "table":
-			WriteTable(search_result)
+			writer.Table(SearchResult)
 	}
-}
-
-func Connect(dbms string, user string, password string, protocol string, dbname string) *gorm.DB {
-  
-	connect := user+":"+password+"@"+protocol+"/"+dbname
-	db,err := gorm.Open(dbms, connect)
-  
-	if err != nil {
-		panic(err.Error())
-	}
-	return db
-}
-
-func GetRows(db *gorm.DB) [][]string {
-	
-	result := make([][]string, 0)
-	rows, err := db.Raw("show variables").Rows()
-
-    if err != nil {
-        panic(err.Error())
-	}
-
-	defer rows.Close()
-
-	for rows.Next() {
-		svs := &Svs{}
-		row := make([]string, 2)
-		
-		err := rows.Scan(
-			&svs.Variable_name,
-			&svs.Value,
-		)
-
-        if err != nil {
-            panic(err.Error())
-		}
-		
-		row = append(row, svs.Variable_name, svs.Value)
-		result = append(result, row)
-	}
-	return result
 }
 
 func Search(keywords [][]string, targets [][]string) [][]string {
@@ -187,66 +90,46 @@ func Search(keywords [][]string, targets [][]string) [][]string {
 
 	for _,  keyword := range keywords {
 
-		search_diff := make([]string, 0)
-		keyword_name := keyword[2]
-		keyword_value := keyword[3]
+		SearchDiff := make([]string, 0)
+		KeywordName := keyword[2]
+		KeywordValue := keyword[3]
 
 		for _, target := range targets {
 
-			target_name := target[2]
-			target_value := target[3]
+			TargetName := target[2]
+			TargetValue := target[3]
 
-			if keyword_name != target_name {
+			if KeywordName != TargetName {
 				continue
 			}
 			
 			exist = 1
 
-			if keyword_value != target_value {
+			if KeywordValue != TargetValue {
 				status = "Different."
-				search_diff = append(search_diff, keyword_name)
-				search_diff = append(search_diff, keyword_value)
-				search_diff = append(search_diff, target_value)
-				search_diff = append(search_diff, status)
-				result = append(result, search_diff)
+				SearchDiff = append(SearchDiff, KeywordName)
+				SearchDiff = append(SearchDiff, KeywordValue)
+				SearchDiff = append(SearchDiff, TargetValue)
+				SearchDiff = append(SearchDiff, status)
+				result = append(result, SearchDiff)
 			}
 		}
 
 		if exist == 0 {
-			message := ""
-			search_diff = append(search_diff, keyword_name)
-			search_diff = append(search_diff, keyword_value)
-			search_diff = append(search_diff, message)
-			search_diff = append(search_diff, status)
-			result = append(result, search_diff)
+			message := "Undefined"
+			SearchDiff = append(SearchDiff, KeywordName)
+			SearchDiff = append(SearchDiff, KeywordValue)
+			SearchDiff = append(SearchDiff, message)
+			SearchDiff = append(SearchDiff, status)
+			result = append(result, SearchDiff)
 		}
 	}
 	return result
 }
 
-func WriteTable(search_result [][]string) {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Parameter", "Value(database01)", "Value(database02)", "Status"})
-	table.SetRowLine(true)
-	table.AppendBulk(search_result)
-	table.Render()
-}
-
-func WriteCSV(search_result [][]string) {
-	layout := "2006-01-02-15-04-05"
-	time := time.Now()
-	path := "differ_" + time.Format(layout) + ".csv"
-
-	file, err := os.Create(path)
-    if err != nil {
-        panic(err.Error())
-    }
-	defer file.Close()
-	
-    writer := csv.NewWriter(file)
-    if err := writer.WriteAll(search_result); err != nil {
-        panic(err.Error())
+func Varidete() {
+	if o.output != "csv" && o.output != "table" {
+		fmt.Println("Invalid output option. You can specify csv or table.")
+		os.Exit(1)
 	}
-	
-    fmt.Println("CSV File Created.")
 }
